@@ -79,6 +79,17 @@
         android:layout_height="1dp"
         android:background="@color/tab_border" />
 
+    <!-- Прошло / Всего -->
+    <TextView
+        android:id="@+id/playbackTimeText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:padding="6dp"
+        android:text="00:00 / 00:00"
+        android:textColor="@color/tab_text"
+        android:textSize="14sp" />
+
     <!-- Строка тон/скорость -->
     <LinearLayout
         android:layout_width="match_parent"
