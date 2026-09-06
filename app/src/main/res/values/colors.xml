@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="tab_border">#4285F4</color>
+    <color name="tab_text">#333333</color>
+    <color name="control_bar_bg">#FFFFFF</color>
+    <color name="hint_text">#8A8A8A</color>
+    <color name="background">#FFFFFF</color>
+</resources>

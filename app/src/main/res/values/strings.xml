@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">TTS Reader</string>
+    <string name="tab_text">Текст</string>
+    <string name="tab_file">Файл</string>
+    <string name="hint_paste_text">Вставьте текст, который нужно озвучить…</string>
+    <string name="btn_back">Назад</string>
+    <string name="btn_pause">Пауза</string>
+    <string name="btn_forward">Вперёд</string>
+    <string name="label_tone">Тон</string>
+    <string name="label_speed">Скорость</string>
+    <string name="btn_start">Старт</string>
+    <string name="btn_load_file">Загрузить файл</string>
+    <string name="library_title">Библиотека</string>
+    <string name="contents_title">Содержание</string>
+    <string name="empty_library">Пока нет загруженных книг</string>
+</resources>
