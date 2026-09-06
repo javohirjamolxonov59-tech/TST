@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.TTSReader" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+    <style name="Theme.TTSReader" parent="Theme.MaterialComponents.Light.NoActionBar">
         <item name="colorPrimary">@color/tab_border</item>
         <item name="android:windowBackground">@color/background</item>
+        <item name="android:textColorPrimary">@color/tab_text</item>
+        <item name="android:textColorHint">@color/hint_text</item>
     </style>
 </resources>
