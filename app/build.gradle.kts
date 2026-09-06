@@ -42,4 +42,5 @@ dependencies {
     implementation("androidx.viewpager2:viewpager2:1.1.0")
     implementation("androidx.recyclerview:recyclerview:1.3.2")
     implementation("androidx.fragment:fragment-ktx:1.8.2")
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
 }

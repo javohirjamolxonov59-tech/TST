@@ -18,12 +18,16 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var tts: TextToSpeech? = null
     private var ttsReady = false
 
+    // --- Модель воспроизведения (оценка длительности приблизительная - Android TTS
+    //     не даёт точную позицию по всем движкам, поэтому считаем по количеству слов) ---
     private var fullWords: List<String> = emptyList()
     private var totalDurationSeconds: Double = 0.0
     private var consumedSecondsBeforeChunk: Double = 0.0
     private var playStartTimeMillis: Long = 0L
-    private var wordsPerSecondBase = 2.5
+    private var wordsPerSecondBase = 2.5 // ~150 слов/мин
     private var currentRateMultiplier = 1.0f
+    private var currentBookId: String? = null
+    private var lastChunkCount = 0
 
     private val handler = Handler(Looper.getMainLooper())
     private val tickRunnable = object : Runnable {
@@ -35,7 +39,11 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
     }
 
-    fun speak(text: String) {
+    /**
+     * Запустить озвучку текста с начала (или с startAtSeconds, если книга уже слушалась).
+     * bookId передаётся, чтобы можно было сохранить позицию для конкретной книги.
+     */
+    fun speak(text: String, bookId: String? = null, startAtSeconds: Double = 0.0) {
         if (text.isBlank()) {
             Toast.makeText(this, "Текст пустой", Toast.LENGTH_SHORT).show()
             return
@@ -44,36 +52,37 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             Toast.makeText(this, "Озвучка ещё загружается, подожди секунду", Toast.LENGTH_SHORT).show()
             return
         }
+        currentBookId = bookId
         fullWords = text.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
         totalDurationSeconds = fullWords.size / (wordsPerSecondBase * currentRateMultiplier)
-        consumedSecondsBeforeChunk = 0.0
-        playStartTimeMillis = System.currentTimeMillis()
+        consumedSecondsBeforeChunk = startAtSeconds.coerceIn(0.0, totalDurationSeconds)
 
-        tts?.stop()
-        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "utt_${playStartTimeMillis}")
-        binding.btnPause.text = getString(R.string.btn_pause)
-        handler.removeCallbacks(tickRunnable)
-        handler.post(tickRunnable)
+        val startWordIndex = (consumedSecondsBeforeChunk * wordsPerSecondBase * currentRateMultiplier)
+            .toInt().coerceIn(0, fullWords.size)
+        playFromWordIndex(startWordIndex)
 
         Toast.makeText(this, "Длительность: ${formatTime(totalDurationSeconds)}", Toast.LENGTH_LONG).show()
     }
 
-    private fun currentElapsedSeconds(): Double {
-        if (fullWords.isEmpty()) return 0.0
-        val chunkElapsed = (System.currentTimeMillis() - playStartTimeMillis) / 1000.0
-        return (consumedSecondsBeforeChunk + chunkElapsed).coerceIn(0.0, totalDurationSeconds)
+    /** Разбивает длинный текст на куски (Android TTS обрывает слишком длинные строки). */
+    private fun buildChunks(text: String, maxChunkChars: Int = 1500): List<String> {
+        if (text.isBlank()) return emptyList()
+        val words = text.split(Regex("\\s+"))
+        val chunks = mutableListOf<String>()
+        val current = StringBuilder()
+        for (w in words) {
+            if (current.length + w.length + 1 > maxChunkChars && current.isNotEmpty()) {
+                chunks.add(current.toString())
+                current.clear()
+            }
+            if (current.isNotEmpty()) current.append(' ')
+            current.append(w)
+        }
+        if (current.isNotEmpty()) chunks.add(current.toString())
+        return chunks
     }
 
-    private fun seek(deltaSeconds: Double) {
-        if (fullWords.isEmpty()) {
-            Toast.makeText(this, "Сначала запусти озвучку", Toast.LENGTH_SHORT).show()
-            return
-        }
-        val target = (currentElapsedSeconds() + deltaSeconds).coerceIn(0.0, totalDurationSeconds)
-        val wordIndex = (target * wordsPerSecondBase * currentRateMultiplier).toInt()
-            .coerceIn(0, fullWords.size)
-
-        consumedSecondsBeforeChunk = target
+    private fun playFromWordIndex(wordIndex: Int) {
         playStartTimeMillis = System.currentTimeMillis()
         tts?.stop()
 
@@ -83,10 +92,37 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             updateTimeLabel()
             return
         }
-        val remaining = fullWords.subList(wordIndex, fullWords.size).joinToString(" ")
-        tts?.speak(remaining, TextToSpeech.QUEUE_FLUSH, null, "utt_seek_${playStartTimeMillis}")
+        val remainingText = fullWords.subList(wordIndex, fullWords.size).joinToString(" ")
+        val chunks = buildChunks(remainingText)
+        lastChunkCount = chunks.size
+
+        chunks.forEachIndexed { i, chunk ->
+            val mode = if (i == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
+            tts?.speak(chunk, mode, null, "utt_${playStartTimeMillis}_${i}_${chunks.size - 1}")
+        }
+        binding.btnPause.text = getString(R.string.btn_pause)
         handler.removeCallbacks(tickRunnable)
         handler.post(tickRunnable)
+    }
+
+    private fun currentElapsedSeconds(): Double {
+        if (fullWords.isEmpty()) return 0.0
+        val chunkElapsed = (System.currentTimeMillis() - playStartTimeMillis) / 1000.0
+        return (consumedSecondsBeforeChunk + chunkElapsed).coerceIn(0.0, totalDurationSeconds)
+    }
+
+    /** Перемотка на deltaSeconds (может быть отрицательным). Кнопки Назад/Вперёд -> ±15 сек. */
+    private fun seek(deltaSeconds: Double) {
+        if (fullWords.isEmpty()) {
+            Toast.makeText(this, "Сначала запусти озвучку", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val target = (currentElapsedSeconds() + deltaSeconds).coerceIn(0.0, totalDurationSeconds)
+        consumedSecondsBeforeChunk = target
+        val wordIndex = (target * wordsPerSecondBase * currentRateMultiplier).toInt()
+            .coerceIn(0, fullWords.size)
+        playFromWordIndex(wordIndex)
+        persistPositionIfNeeded()
     }
 
     private fun togglePause() {
@@ -99,6 +135,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             tts?.stop()
             handler.removeCallbacks(tickRunnable)
             binding.btnPause.text = "▶"
+            persistPositionIfNeeded()
         } else {
             val wordIndex = (consumedSecondsBeforeChunk * wordsPerSecondBase * currentRateMultiplier)
                 .toInt().coerceIn(0, fullWords.size)
@@ -106,13 +143,13 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 Toast.makeText(this, "Текст уже закончен", Toast.LENGTH_SHORT).show()
                 return
             }
-            val remaining = fullWords.subList(wordIndex, fullWords.size).joinToString(" ")
-            playStartTimeMillis = System.currentTimeMillis()
-            tts?.speak(remaining, TextToSpeech.QUEUE_FLUSH, null, "utt_resume_${playStartTimeMillis}")
-            handler.removeCallbacks(tickRunnable)
-            handler.post(tickRunnable)
-            binding.btnPause.text = getString(R.string.btn_pause)
+            playFromWordIndex(wordIndex)
         }
+    }
+
+    private fun persistPositionIfNeeded() {
+        val id = currentBookId ?: return
+        LibraryStore.updatePosition(this, id, consumedSecondsBeforeChunk)
     }
 
     private fun updateTimeLabel() {
@@ -137,11 +174,17 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) {}
                 override fun onDone(utteranceId: String?) {
-                    runOnUiThread {
-                        consumedSecondsBeforeChunk = totalDurationSeconds
-                        handler.removeCallbacks(tickRunnable)
-                        updateTimeLabel()
-                        binding.btnPause.text = getString(R.string.btn_pause)
+                    val parts = utteranceId?.split("_") ?: return
+                    val idx = parts.getOrNull(parts.size - 2)?.toIntOrNull() ?: return
+                    val last = parts.getOrNull(parts.size - 1)?.toIntOrNull() ?: return
+                    if (idx == last) {
+                        runOnUiThread {
+                            consumedSecondsBeforeChunk = totalDurationSeconds
+                            handler.removeCallbacks(tickRunnable)
+                            updateTimeLabel()
+                            binding.btnPause.text = getString(R.string.btn_pause)
+                            persistPositionIfNeeded()
+                        }
                     }
                 }
                 @Deprecated("Deprecated in Java")
@@ -165,8 +208,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }.attach()
 
         binding.btnPause.setOnClickListener { togglePause() }
-        binding.btnBack.setOnClickListener { seek(-10.0) }
-        binding.btnForward.setOnClickListener { seek(10.0) }
+        binding.btnBack.setOnClickListener { seek(-15.0) }
+        binding.btnForward.setOnClickListener { seek(15.0) }
 
         binding.seekTone.progress = 50
         binding.seekTone.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
@@ -193,6 +236,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     override fun onDestroy() {
+        persistPositionIfNeeded()
         handler.removeCallbacks(tickRunnable)
         tts?.stop()
         tts?.shutdown()
